@@ -1,6 +1,5 @@
 import urllib.request
 import requests
-from requests import session
 import re
 import json
 import os
@@ -13,7 +12,7 @@ def getBeatMapSet(curCursor, urlFilter):
     response = requests.get("https://osu.ppy.sh/beatmapsets/search" + urlFilter + curCursor)
     return response.json()
 
-def dlBeatMap(beatmapset):
+def dlBeatMap(beatmapset, osuSessIds):
     bmsId = beatmapset['id']
     bmsPath = "data/{}/".format(bmsId)
     # Clean folder first
@@ -28,14 +27,29 @@ def dlBeatMap(beatmapset):
             print("Error when deleting {}. Reason: {}".format(filePath, e))
 
     # Download the beatmap from osu
-    response = urllib.request.urlopen("https://old.ppy.sh/d/{}".format(bmsId))
-    #yresponse = session().get("https://old.ppy.sh/d/{}".format(bmsId), stream=True)
-    # response = requests.get("https://old.ppy.sh/d/{}".format(bmsId), allow_redirects=True, auth=(osuUser, osuPass))
-    open(bmsPath + "{}.zip".format(bmsId), 'wb').write(response.read())
-    # with open(bmsPath + "{}.zip".format(bmsId), 'wb') as beatmap:
-    #     for chunk in response.iter_content(chunk_size=512 * 1024):
-    #         if chunk:
-    #             beatmap.write(chunk)
+
+    # response = requests.get(
+    #     "https://old.ppy.sh/d/{}".format(bmsId),
+    #     headers={'osu_session': osuSessIds},
+    #     stream=True
+    # )
+    osuSessIds = "eyJpdiI6ImdEZGFoMmtZOEV1TzhSRVwvUW9wME1nPT0iLCJ2YWx1ZSI6IkZ6dEErVnRncXRYYjNveG9NWDZJTVgyeU9QQmZaaDhnSHhvNFhUMWpLYjBCaWkyU2lcL2o1UklFQnBNOHFpcFRyMVBNcVBVSmFjNUZKQXNZdEpFTThjUT09IiwibWFjIjoiN2EwYWU3YTgzMWM4OTIwZWRiMDAzOWMwYmEyMjRkNzkyNWIzNzVkNjc4NTk0MTdjZGM5YThjMmE0NjNjY2FlYiJ9"
+    quota_chk = requests.get(
+        "https://osu.ppy.sh/home/download-quota-check".format(bmsId),
+        headers={'cookie': 'osu_session={}'.format(osuSessIds)},
+        stream=True
+    )
+    print("STATUS CODE {}: {}".format(bmsId, quota_chk.status_code))
+    response = requests.get(
+        "https://osu.ppy.sh/beatmapsets/{}/download".format(bmsId),
+        headers={'cookie': 'osu_session={}'.format(osuSessIds)},
+        stream=True
+    )
+    print("STATUS CODE {}: {}".format(bmsId, response.status_code))
+    with open(bmsPath + "{}.zip".format(bmsId), 'wb') as beatmap:
+        for chunk in response.iter_content(chunk_size=512 * 1024):
+            if chunk:
+                beatmap.write(chunk)
 
 
 if __name__ == "__main__":
@@ -53,25 +67,22 @@ if __name__ == "__main__":
     osuUser = credLines[0]#input('Enter your osu username: ')
     osuPass = credLines[1]#input('Enter your osu password: ')
 
-    authentication_url = 'https://osu.ppy.sh/forum/ucp.php?mode=login'
-    manager = urllib.request.HTTPPasswordMgrWithDefaultRealm()
-    manager.add_password(None, authentication_url, osuUser, osuPass)
-    auth = urllib.request.HTTPBasicAuthHandler(manager)
+    authentication_url = 'https://osu.ppy.sh/session'
+    payload = {
+        'action': 'login',
+        'username': osuUser,
+        'password': osuPass,
+        'redirect': 'index.php',
+        'sid': '',
+        'login': 'Login'
+    }
 
-    opener = urllib.request.build_opener(auth)
-    urllib.request.install_opener(opener)
-    # payload = {
-    #     'action': 'login',
-    #     'username': osuUser,
-    #     'password': osuPass,
-    #     'redirect': 'index.php',
-    #     'sid': '',
-    #     'login': 'Login'
-    # }
-
-    # response = session().post(authentication_url, data=payload)
-    # print(response.headers)
-    # print(response.headers['Set-Cookie'].split("; "))
+    response = requests.post(authentication_url, data=payload)
+    print(response.headers['Set-Cookie'])#.split("; "))
+    osuSessIds = list(filter(lambda x: "osu_session=" in x ,response.headers['Set-Cookie'].split("; ")))[1]
+    osuSessIds = osuSessIds.split("osu_session=")[1]
+    print("STATUS_CODE")
+    assert response.status_code == 200, "Please check your credentials, (in cred.txt)"
 
     urlFilter = "?m=3&sort=plays_desc&s=any"
     curCursor = ""
@@ -97,7 +108,7 @@ if __name__ == "__main__":
                 if not os.path.exists(beatmapSetPath):
                     os.mkdir(beatmapSetPath)
 
-                dlBeatMap(beatmapset)
+                dlBeatMap(beatmapset, osuSessIds)
                 numFound += 1
                 if (numFound >= numData):
                     break
